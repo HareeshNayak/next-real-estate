@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^5.7.5",
+    "@supabase/supabase-js": "^2.49.4",
+    "appwrite": "^17.0.2",
     "firebase": "^11.7.1",
     "mongodb": "^6.16.0",
     "mongoose": "^8.8.4",

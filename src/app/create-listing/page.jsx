@@ -1,18 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-
-import { app } from '../../firebase';
-
-import {
-  getStorage,
-  ref,
-  uploadBytesResumable,
-  getDownloadURL,
-} from 'firebase/storage';
-
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = 'https://gjsffgozbvkjobvnwwhe.supabase.co';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function CreateListing() {
   const { isSignedIn, user, isLoaded } = useUser();
@@ -37,9 +32,7 @@ export default function CreateListing() {
     furnished: false,
   });
 
-  console.log(formData);
-
-  const handleImageSubmit = (e) => {
+  const handleImageSubmit = async (e) => {
     if (files.length > 0 && files.length + formData.imageUrls.length < 7) {
       setUploading(true);
       setImageUploadError(false);
@@ -53,42 +46,30 @@ export default function CreateListing() {
             ...formData,
             imageUrls: formData.imageUrls.concat(urls),
           });
-          setImageUploadError(false);
           setUploading(false);
         })
         .catch((err) => {
-          setImageUploadError('Image upload failed (2 mb max per image)');
+          setImageUploadError('Image upload failed (2 MB max per image)');
           setUploading(false);
         });
     } else {
       setImageUploadError('You can only upload 6 images per listing');
-      setUploading(false);
     }
   };
 
   const storeImage = async (file) => {
-    return new Promise((resolve, reject) => {
-      const storage = getStorage(app);
-      const fileName = new Date().getTime() + file.name;
-      const storageRef = ref(storage, fileName);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-      uploadTask.on(
-        'state_changed',
-        (snapshot) => {
-          const progress =
-            (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          console.log(`Upload is ${progress}% done`);
-        },
-        (error) => {
-          reject(error);
-        },
-        () => {
-          getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
-            resolve(downloadURL);
-          });
-        }
-      );
-    });
+    const fileName = `${Date.now()}-${file.name}`;
+    const { data, error } = await supabase.storage
+      .from('images') // make sure 'images' is your bucket name
+      .upload(fileName, file);
+
+    if (error) throw error;
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from('images').getPublicUrl(fileName);
+
+    return publicUrl;
   };
 
   const handleRemoveImage = (index) => {
@@ -100,30 +81,11 @@ export default function CreateListing() {
 
   const handleChange = (e) => {
     if (e.target.id === 'sale' || e.target.id === 'rent') {
-      setFormData({
-        ...formData,
-        type: e.target.id,
-      });
-    }
-    if (
-      e.target.id === 'parking' ||
-      e.target.id === 'furnished' ||
-      e.target.id === 'offer'
-    ) {
-      setFormData({
-        ...formData,
-        [e.target.id]: e.target.checked,
-      });
-    }
-    if (
-      e.target.type === 'number' ||
-      e.target.type === 'text' ||
-      e.target.type === 'textarea'
-    ) {
-      setFormData({
-        ...formData,
-        [e.target.id]: e.target.value,
-      });
+      setFormData({ ...formData, type: e.target.id });
+    } else if (['parking', 'furnished', 'offer'].includes(e.target.id)) {
+      setFormData({ ...formData, [e.target.id]: e.target.checked });
+    } else if (["number", "text", "textarea"].includes(e.target.type)) {
+      setFormData({ ...formData, [e.target.id]: e.target.value });
     }
   };
 
@@ -136,40 +98,31 @@ export default function CreateListing() {
         return setError('Discount price must be lower than regular price');
       setLoading(true);
       setError(false);
+
       const res = await fetch('/api/listing/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
           userMongoId: user.publicMetadata.userMogoId,
         }),
       });
+
       const data = await res.json();
       setLoading(false);
-      if (data.success === false) {
-        setError(data.message);
-      }
+      if (data.success === false) return setError(data.message);
       router.push(`/listing/${data._id}`);
-    } catch (error) {
-      setError(error.message);
+    } catch (err) {
+      setError(err.message);
       setLoading(false);
     }
   };
 
-  if (!isLoaded) {
-    return (
-      <h1 className='text-center text-xl my-7 font-semibold'>Loading...</h1>
-    );
-  }
-  if (!isSignedIn) {
-    return (
-      <h1 className='text-center text-xl my-7 font-semibold'>
-        You are not authorized to view this page
-      </h1>
-    );
-  }
+  if (!isLoaded) return <h1 className='text-center my-7 font-semibold'>Loading...</h1>;
+  if (!isSignedIn) return <h1 className='text-center my-7 font-semibold'>Unauthorized</h1>;
+
+  // The rest of the form and JSX remains the same
+
 
 
   return (
